@@ -42,6 +42,10 @@ td{padding:10px 12px;border-bottom:1px solid rgba(200,150,200,0.07)}
 .empty{color:rgba(200,170,210,0.3);text-align:center;padding:24px;font-size:13px}
 .info-box{background:rgba(125,180,235,0.08);border:1px solid rgba(125,180,235,0.2);border-radius:8px;padding:14px 18px;margin-bottom:16px;font-size:12px;color:#9ab8db;line-height:1.6}
 .info-box code{background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:3px;font-family:monospace;color:#c8b6e6}
+.step{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px;padding:16px;background:rgba(16,12,34,0.5);border-radius:8px;border:1px solid rgba(200,150,200,0.08)}
+.step-num{background:linear-gradient(135deg,#b482b4,#c896c8);color:#1a1028;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;flex-shrink:0}
+.step-text{font-size:13px;line-height:1.5}
+.step-text strong{color:#e6b6e6}
 </style>
 </head>
 <body>
@@ -58,10 +62,29 @@ td{padding:10px 12px;border-bottom:1px solid rgba(200,150,200,0.07)}
 </div>
 
 <div class="panel">
+  <h2>How It Works</h2>
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-text"><strong>Upload Payload</strong> — upload blossom.exe / bloom.dll below. One universal loader is built for all users.</div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-text"><strong>Build Loader</strong> — run <code>build.bat</code> in the <code>blossom/</code> folder. It fetches the encrypted payload from here and compiles one loader.</div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-text"><strong>Upload Latest</strong> — upload the compiled zip to "Latest Loader" below. The updater auto-downloads it for users.</div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-text"><strong>Manage Licenses</strong> — create keys on <a href="https://eliteauth.lol" target="_blank" style="color:#c896c8">EliteAuth</a>. Users enter their EliteAuth license key in the loader.</div>
+  </div>
+</div>
+
+<div class="panel">
   <h2>Upload Payload (blossom.exe / bloom.dll)</h2>
   <div class="info-box">
-    Upload the compiled <code>blossom.exe</code> and/or <code>bloom.dll</code> here. These will be encrypted and embedded into each generated loader.
-    Files in the payload directory persist across reloads.
+    Upload the compiled <code>blossom.exe</code> and/or <code>bloom.dll</code>. These will be encrypted into the universal loader.
   </div>
   <form method="POST" action="/admin/upload-payload" enctype="multipart/form-data">
     <div class="row">
@@ -78,134 +101,9 @@ td{padding:10px 12px;border-bottom:1px solid rgba(200,150,200,0.07)}
 </div>
 
 <div class="panel">
-  <h2>Add Key</h2>
-  <form method="POST" action="/admin/add-key">
-    <div class="row">
-      <div class="field">
-        <label>Key (auto-generated)</label>
-        <input type="text" name="key_text" id="keyInput" placeholder="Click Generate to create" readonly style="width:280px;font-family:monospace;background:rgba(22,18,38,0.5)">
-      </div>
-      <div class="field">
-        <label>Type</label>
-        <select name="type">
-          <option value="day">Day (24h)</option>
-          <option value="lifetime">Lifetime</option>
-        </select>
-      </div>
-      <button type="button" class="btn btn-success btn-sm" onclick="genKey()">Generate</button>
-      <button type="submit" class="btn btn-primary">Add</button>
-    </div>
-  </form>
-  <script>
-  function genKey(){
-    var c="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    var k="";
-    for(var g=0;g<5;g++){
-      for(var i=0;i<5;i++) k+=c[Math.floor(Math.random()*c.length)];
-      if(g<4) k+="-";
-    }
-    document.getElementById("keyInput").value=k;
-    document.getElementById("keyInput").readOnly=false;
-  }
-  </script>
-</div>
-
-<div class="panel">
-  <h2>Bulk Generate Keys</h2>
-  <form method="POST" action="/admin/bulk-add-keys">
-    <div class="row">
-      <div class="field">
-        <label>How many?</label>
-        <input type="number" name="count" value="1" min="1" max="100" style="width:80px">
-      </div>
-      <div class="field">
-        <label>Type</label>
-        <select name="type">
-          <option value="day">Day (24h)</option>
-          <option value="lifetime">Lifetime</option>
-        </select>
-      </div>
-      <button type="submit" class="btn btn-primary">Generate</button>
-    </div>
-  </form>
-</div>
-
-<div class="panel">
-  <h2>Generate Loaders (Bulk)</h2>
-  <div class="info-box">
-    Encrypts payload and builds headers for keys that don't have one yet. Then run <code>build.bat</code> to compile.
-  </div>
-  <form method="POST" action="/admin/generate-bulk">
-    <div class="row">
-      <div class="field">
-        <label>How many?</label>
-        <input type="number" name="count" value="10" min="1" max="500" style="width:80px">
-      </div>
-      <button type="submit" class="btn btn-success">Generate Headers</button>
-    </div>
-  </form>
-</div>
-
-<div class="panel">
-  <h2>Keys</h2>
-  <div class="info-box">
-    Click <strong>Generate</strong> to build the loader header (encrypts payload + embeds key). Then run <code>build.bat</code> locally to compile.
-    A loader must be generated and compiled before users can download it.
-  </div>
-  {% if keys %}
-  <table>
-    <tr><th>Key</th><th>Type</th><th>Status</th><th>Redeemed</th><th>Header</th><th>Loader</th><th></th></tr>
-    {% for k in keys %}
-    <tr>
-      <td class="key-text">{{ k.key_text }}</td>
-      <td><span class="badge badge-{{ k.expiry_type }}">{{ k.expiry_type }}</span></td>
-      <td><span class="badge badge-{{ k.status }}">{{ k.status }}</span></td>
-      <td>{{ k.redeemed_at or '-' }}</td>
-      <td>{{ 'Yes' if k.generated_header else 'No' }}</td>
-      <td>{{ 'Yes' if k.loader_file else 'No' }}</td>
-      <td style="display:flex;gap:6px">
-        {% if not k.generated_header %}
-        <form method="POST" action="/admin/generate-loader/{{ k.key_hash }}" style="display:inline">
-          <button class="btn btn-success btn-sm">Generate</button>
-        </form>
-        {% endif %}
-        {% if k.generated_header %}
-        <a href="/api/headers/{{ k.key_hash }}" class="btn btn-primary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center">Header</a>
-        {% endif %}
-        <form method="POST" action="/admin/delete-key/{{ k.id }}" style="display:inline" onsubmit="return confirm('Delete?')">
-          <button class="btn btn-danger btn-sm">Delete</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% else %}
-  <div class="empty">No keys yet</div>
-  {% endif %}
-</div>
-
-<div class="panel">
-  <h2>Upload Loader (Manual)</h2>
-  <form method="POST" action="/admin/upload-loader" enctype="multipart/form-data">
-    <div class="row">
-      <div class="field">
-        <label>Key</label>
-        <input type="text" name="key_text" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" style="width:260px;font-family:monospace">
-      </div>
-      <div class="field">
-        <label>Loader EXE</label>
-        <input type="file" name="loader" accept=".exe,.zip" style="color:#c8a8d8;font-size:12px">
-      </div>
-      <button type="submit" class="btn btn-primary">Upload</button>
-    </div>
-  </form>
-</div>
-
-<div class="panel">
   <h2>Latest Loader (Updater)</h2>
   <div class="info-box">
-    Upload the compiled loader zip here. This is served to the updater stub when users run <code>updater.exe</code>.
-    The version auto-increments, or you can set it manually.
+    Upload the compiled loader zip here. This is served to <code>updater.exe</code> when users run it.
   </div>
   <form method="POST" action="/admin/upload-latest-loader" enctype="multipart/form-data">
     <div class="row">

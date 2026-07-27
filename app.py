@@ -123,7 +123,7 @@ def to_hex_c_array(data, indent=4):
     return ',\n'.join(lines)
 
 
-def generate_header(key_text, expiry_type, payload_dir):
+def generate_header(payload_dir, eliteauth_app_id="YOUR_APP_ID_HERE"):
     import Crypto.Random as _Random
     archive = build_payload_archive(payload_dir)
     if archive is None:
@@ -132,12 +132,9 @@ def generate_header(key_text, expiry_type, payload_dir):
     enc_key = _Random.get_random_bytes(32)
     enc_iv = _Random.get_random_bytes(16)
     encrypted = aes_encrypt(enc_key, enc_iv, archive)
-    key_hash = hash_key(key_text)
     lines = [
         '#pragma once',
         '#include <cstdint>',
-        '#include <string>',
-        '#include "crypto.h"',
         '',
         'alignas(16) static const uint8_t g_encryptedPayload[] = {',
     ]
@@ -151,9 +148,6 @@ def generate_header(key_text, expiry_type, payload_dir):
     lines.append('')
     lines.append(f'static const uint8_t g_aesKey[32] = {{ {to_hex_c_array(enc_key)} }};')
     lines.append(f'static const uint8_t g_aesIV[16] = {{ {to_hex_c_array(enc_iv)} }};')
-    lines.append('')
-    lines.append(f'static const char* g_validKeyHash = "{key_hash}";')
-    lines.append(f'static const char* g_expiryType = "{expiry_type}";')
     lines.append('')
     return '\n'.join(lines)
 
@@ -507,7 +501,7 @@ def admin_generate_loader(key_hash_val):
         db.close()
         return "No payload files in payload/ directory", 400
 
-    header = generate_header(row["key_text"], row["expiry_type"], PAYLOAD_DIR)
+    header = generate_header(PAYLOAD_DIR)
     if header is None:
         db.close()
         return "Failed to build payload archive", 500
@@ -533,7 +527,7 @@ def admin_generate_bulk():
 
     generated = 0
     for row in rows:
-        header = generate_header(row["key_text"], row["expiry_type"], PAYLOAD_DIR)
+        header = generate_header(PAYLOAD_DIR)
         if header is not None:
             db.execute("UPDATE keys SET generated_header = ? WHERE key_hash = ?", (header, row["key_hash"]))
             generated += 1
@@ -576,6 +570,16 @@ def api_get_header(key_hash_val):
     if not row["generated_header"]:
         return "Header not generated yet. Use /admin/generate-loader first.", 404
     return row["generated_header"], 200, {"Content-Type": "text/plain"}
+
+
+@app.route("/api/payload-header")
+def api_payload_header():
+    if not os.path.isdir(PAYLOAD_DIR) or not os.listdir(PAYLOAD_DIR):
+        return "No payload uploaded", 404
+    header = generate_header(PAYLOAD_DIR)
+    if header is None:
+        return "Failed to build payload", 500
+    return header, 200, {"Content-Type": "text/plain"}
 
 
 @app.route("/api/pending-builds")
