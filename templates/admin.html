@@ -37,11 +37,7 @@ td{padding:10px 12px;border-bottom:1px solid rgba(200,150,200,0.07)}
 .badge-day{background:rgba(125,180,235,0.15);color:#7db4eb}
 .badge-lifetime{background:rgba(235,180,125,0.15);color:#ebb47d}
 .key-text{font-family:monospace;letter-spacing:1px;color:#e6d6e6}
-.generated{background:rgba(125,235,125,0.08);border:1px solid rgba(125,235,125,0.2);border-radius:8px;padding:16px;margin-bottom:16px}
-.generated h3{color:#7deb7d;font-size:14px;margin-bottom:8px}
-.generated pre{font-family:monospace;font-size:13px;color:#e6d6f0;white-space:pre-wrap;user-select:all;cursor:pointer}
 .empty{color:rgba(200,170,210,0.3);text-align:center;padding:24px;font-size:13px}
-.upload-form{display:flex;gap:8px;align-items:flex-end}
 </style>
 </head>
 <body>
@@ -57,12 +53,14 @@ td{padding:10px 12px;border-bottom:1px solid rgba(200,150,200,0.07)}
   <div class="stat"><div class="num">{{ stats.total_accounts }}</div><div class="label">Accounts</div></div>
 </div>
 
-
-
 <div class="panel">
-  <h2>Generate Keys</h2>
-  <form method="POST" action="/admin/generate-key">
+  <h2>Add Key</h2>
+  <form method="POST" action="/admin/add-key">
     <div class="row">
+      <div class="field">
+        <label>Key</label>
+        <input type="text" name="key_text" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" style="width:260px;font-family:monospace">
+      </div>
       <div class="field">
         <label>Type</label>
         <select name="type">
@@ -70,11 +68,7 @@ td{padding:10px 12px;border-bottom:1px solid rgba(200,150,200,0.07)}
           <option value="lifetime">Lifetime</option>
         </select>
       </div>
-      <div class="field">
-        <label>Count</label>
-        <input type="number" name="count" value="1" min="1" max="100" style="width:80px">
-      </div>
-      <button type="submit" class="btn btn-primary">Generate</button>
+      <button type="submit" class="btn btn-primary">Add</button>
     </div>
   </form>
 </div>
