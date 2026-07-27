@@ -1,8 +1,5 @@
-[phases.setup]
-nixPkgs = []
-
 [phases.install]
 cmds = ["pip install -r requirements.txt"]
 
-[phases.build]
-cmds = []
+[start]
+cmd = "gunicorn -w 2 -b 0.0.0.0:$PORT main:app"
