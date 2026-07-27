@@ -62,6 +62,9 @@ PAYLOAD_DIR = os.path.join(BASE_DIR, "payload")
 LOADER_VERSION_DIR = os.path.join(BASE_DIR, "loader_versions")
 
 
+BIN_DIR = os.path.join(BASE_DIR, "bin")
+
+
 def sha256_hex(data):
     if isinstance(data, str):
         data = data.encode()
@@ -169,6 +172,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OFFSETS_DIR, exist_ok=True)
 os.makedirs(PAYLOAD_DIR, exist_ok=True)
 os.makedirs(LOADER_VERSION_DIR, exist_ok=True)
+os.makedirs(BIN_DIR, exist_ok=True)
 
 
 def get_db():
@@ -222,12 +226,75 @@ def admin_required(f):
 
 @app.route("/")
 def index():
-    return redirect(url_for("redeem_page"))
+    return redirect(url_for("download_page"))
 
 
 @app.route("/redeem")
 def redeem_page():
     return render_template("redeem.html")
+
+
+@app.route("/download")
+def download_page():
+    return render_template("download.html")
+
+
+@app.route("/api/download-validate", methods=["POST"])
+def api_download_validate():
+    data = request.get_json()
+    if not data or "key" not in data:
+        return jsonify({"valid": False, "message": "No key provided"}), 400
+
+    key_text = data["key"].strip().upper()
+    key_hash_val = hash_key(key_text)
+
+    db = get_db()
+    row = db.execute("SELECT * FROM keys WHERE key_hash = ?", (key_hash_val,)).fetchone()
+    db.close()
+
+    if not row:
+        return jsonify({"valid": False, "message": "Invalid key"})
+    if not row["loader_file"] and not row["generated_header"]:
+        return jsonify({"valid": False, "message": "Loader not available yet"})
+
+    return jsonify({
+        "valid": True,
+        "message": "Key accepted",
+        "download_url": f"/download/{key_hash_val}"
+    })
+
+
+@app.route("/download/<key_hash_val>")
+def download_package(key_hash_val):
+    import zipfile
+    import io
+
+    db = get_db()
+    row = db.execute("SELECT * FROM keys WHERE key_hash = ?", (key_hash_val,)).fetchone()
+    db.close()
+
+    if not row:
+        abort(404)
+
+    updater_path = os.path.join(BIN_DIR, "updater.exe")
+    injector_path = os.path.join(BIN_DIR, "injector.exe")
+
+    if not os.path.exists(updater_path):
+        return "updater.exe not found on server", 500
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.write(updater_path, "updater.exe")
+        if os.path.exists(injector_path):
+            zf.write(injector_path, "injector.exe")
+    buf.seek(0)
+
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name="Blossom.zip",
+        mimetype="application/zip"
+    )
 
 
 @app.route("/api/validate", methods=["POST"])
