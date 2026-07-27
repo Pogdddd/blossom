@@ -179,6 +179,7 @@ def download_loader(key_hash):
 
 
 @app.route("/api/accounts", methods=["GET"])
+@admin_required
 def api_accounts():
     db = get_db()
     rows = db.execute("SELECT * FROM accounts ORDER BY created_at DESC").fetchall()
@@ -187,6 +188,7 @@ def api_accounts():
 
 
 @app.route("/api/accounts", methods=["DELETE"])
+@admin_required
 def api_delete_account():
     data = request.get_json()
     if not data or "username" not in data:
