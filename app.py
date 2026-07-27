@@ -4,6 +4,7 @@ import json
 import sqlite3
 import hashlib
 import secrets
+import struct
 import threading
 import time
 import urllib.request
@@ -12,6 +13,9 @@ from flask import (
     Flask, request, jsonify, send_file,
     redirect, url_for, session, render_template, abort
 )
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+import Crypto.Random
 
 app = Flask(__name__)
 
@@ -54,8 +58,101 @@ CHEATOFFSETS_MAP = {
 }
 
 
+PAYLOAD_DIR = os.path.join(BASE_DIR, "payload")
+LOADER_VERSION_DIR = os.path.join(BASE_DIR, "loader_versions")
+
+
+def sha256_hex(data):
+    if isinstance(data, str):
+        data = data.encode()
+    return hashlib.sha256(data).hexdigest()
+
+
 def hash_key(key_text):
     return hashlib.sha256((key_text + KEY_SECRET).encode()).hexdigest()
+
+
+def aes_encrypt(key, iv, plaintext):
+    from Crypto.Cipher import AES as _AES
+    from Crypto.Util.Padding import pad as _pad
+    cipher = _AES.new(key, _AES.MODE_CBC, iv)
+    return cipher.encrypt(_pad(plaintext, _AES.block_size))
+
+
+def build_payload_archive(payload_dir):
+    import struct as _struct
+    files = []
+    for fname in os.listdir(payload_dir):
+        ext = os.path.splitext(fname)[1].lower()
+        if ext in ('.exe', '.dll'):
+            fpath = os.path.join(payload_dir, fname)
+            with open(fpath, 'rb') as f:
+                data = f.read()
+            if data:
+                files.append((fname, data))
+    if not files:
+        return None
+    buf = bytearray()
+    buf += _struct.pack('<I', len(files))
+    for name, data in files:
+        name_bytes = name.encode('utf-8')
+        buf += _struct.pack('<I', len(name_bytes) + 1)
+        buf += name_bytes + b'\x00'
+        buf += _struct.pack('<I', len(data))
+        buf += data
+    return bytes(buf)
+
+
+def crc32_compute(data):
+    import binascii
+    return binascii.crc32(data) & 0xFFFFFFFF
+
+
+def to_hex_c_array(data, indent=4):
+    prefix = ' ' * indent
+    lines = []
+    chunk = []
+    for i, b in enumerate(data):
+        chunk.append(f'0x{b:02x}')
+        if len(chunk) == 16 or i == len(data) - 1:
+            lines.append(prefix + ', '.join(chunk))
+            chunk = []
+    return ',\n'.join(lines)
+
+
+def generate_header(key_text, expiry_type, payload_dir):
+    import Crypto.Random as _Random
+    archive = build_payload_archive(payload_dir)
+    if archive is None:
+        return None
+    crc = crc32_compute(archive)
+    enc_key = _Random.get_random_bytes(32)
+    enc_iv = _Random.get_random_bytes(16)
+    encrypted = aes_encrypt(enc_key, enc_iv, archive)
+    key_hash = hash_key(key_text)
+    lines = [
+        '#pragma once',
+        '#include <cstdint>',
+        '#include <string>',
+        '#include "crypto.h"',
+        '',
+        'alignas(16) static const uint8_t g_encryptedPayload[] = {',
+    ]
+    hex_str = to_hex_c_array(encrypted)
+    if hex_str:
+        lines.append(f'    {hex_str}')
+    lines.append('};')
+    lines.append('')
+    lines.append(f'static const size_t g_encryptedPayloadSize = {len(encrypted)};')
+    lines.append(f'static const uint32_t g_payloadCRC = 0x{crc:08x};')
+    lines.append('')
+    lines.append(f'static const uint8_t g_aesKey[32] = {{ {to_hex_c_array(enc_key)} }};')
+    lines.append(f'static const uint8_t g_aesIV[16] = {{ {to_hex_c_array(enc_iv)} }};')
+    lines.append('')
+    lines.append(f'static const char* g_validKeyHash = "{key_hash}";')
+    lines.append(f'static const char* g_expiryType = "{expiry_type}";')
+    lines.append('')
+    return '\n'.join(lines)
 
 
 def get_secret():
@@ -70,6 +167,8 @@ def get_secret():
 app.secret_key = get_secret()
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OFFSETS_DIR, exist_ok=True)
+os.makedirs(PAYLOAD_DIR, exist_ok=True)
+os.makedirs(LOADER_VERSION_DIR, exist_ok=True)
 
 
 def get_db():
@@ -89,6 +188,7 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'unused',
             redeemed_at TIMESTAMP DEFAULT NULL,
             loader_file TEXT DEFAULT NULL,
+            generated_header TEXT DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS accounts (
@@ -102,6 +202,11 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+    try:
+        db.execute("ALTER TABLE keys ADD COLUMN generated_header TEXT DEFAULT NULL")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
     db.commit()
     db.close()
 
@@ -171,10 +276,16 @@ def download_loader(key_hash):
     db.commit()
     db.close()
 
+    loader_path = os.path.join(UPLOAD_DIR, row["loader_file"])
+    if row["loader_file"].endswith('.zip'):
+        download_name = "BlossomLoader.zip"
+    else:
+        download_name = "BlossomLoader.exe"
+
     return send_file(
-        os.path.join(UPLOAD_DIR, row["loader_file"]),
+        loader_path,
         as_attachment=True,
-        download_name="BlossomLoader.exe"
+        download_name=download_name
     )
 
 
@@ -262,6 +373,33 @@ def admin_add_key():
     return redirect(url_for("admin_panel"))
 
 
+def _gen_random_key():
+    import random
+    import string
+    chars = string.ascii_uppercase + string.digits
+    parts = [''.join(random.choices(chars, k=5)) for _ in range(5)]
+    return '-'.join(parts)
+
+
+@app.route("/admin/bulk-add-keys", methods=["POST"])
+@admin_required
+def admin_bulk_add_keys():
+    count = min(int(request.form.get("count", 1)), 100)
+    expiry_type = request.form.get("type", "day")
+    db = get_db()
+    for _ in range(count):
+        key_text = _gen_random_key()
+        key_hash_val = hash_key(key_text)
+        try:
+            db.execute("INSERT INTO keys (key_text, key_hash, expiry_type) VALUES (?, ?, ?)",
+                       (key_text, key_hash_val, expiry_type))
+        except sqlite3.IntegrityError:
+            pass
+    db.commit()
+    db.close()
+    return redirect(url_for("admin_panel"))
+
+
 @app.route("/admin/upload-loader", methods=["POST"])
 @admin_required
 def admin_upload_loader():
@@ -277,12 +415,110 @@ def admin_upload_loader():
         db.close()
         return "Key not found", 404
 
-    filename = f"loader_{key_hash_val[:16]}.exe"
+    orig_name = file.filename.lower()
+    if orig_name.endswith('.zip'):
+        filename = f"loader_{key_hash_val[:16]}.zip"
+    else:
+        filename = f"loader_{key_hash_val[:16]}.exe"
     file.save(os.path.join(UPLOAD_DIR, filename))
     db.execute("UPDATE keys SET loader_file = ? WHERE key_hash = ?", (filename, key_hash_val))
     db.commit()
     db.close()
     return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/generate-loader/<key_hash_val>", methods=["POST"])
+@admin_required
+def admin_generate_loader(key_hash_val):
+    db = get_db()
+    row = db.execute("SELECT * FROM keys WHERE key_hash = ?", (key_hash_val,)).fetchone()
+    if not row:
+        db.close()
+        return "Key not found", 404
+
+    if not os.path.isdir(PAYLOAD_DIR) or not os.listdir(PAYLOAD_DIR):
+        db.close()
+        return "No payload files in payload/ directory", 400
+
+    header = generate_header(row["key_text"], row["expiry_type"], PAYLOAD_DIR)
+    if header is None:
+        db.close()
+        return "Failed to build payload archive", 500
+
+    db.execute("UPDATE keys SET generated_header = ? WHERE key_hash = ?", (header, key_hash_val))
+    db.commit()
+    db.close()
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/generate-bulk", methods=["POST"])
+@admin_required
+def admin_generate_bulk():
+    count = min(int(request.form.get("count", 10)), 500)
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM keys WHERE generated_header IS NULL LIMIT ?", (count,)
+    ).fetchall()
+
+    if not os.path.isdir(PAYLOAD_DIR) or not os.listdir(PAYLOAD_DIR):
+        db.close()
+        return "No payload files in payload/ directory", 400
+
+    generated = 0
+    for row in rows:
+        header = generate_header(row["key_text"], row["expiry_type"], PAYLOAD_DIR)
+        if header is not None:
+            db.execute("UPDATE keys SET generated_header = ? WHERE key_hash = ?", (header, row["key_hash"]))
+            generated += 1
+
+    db.commit()
+    db.close()
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/upload-payload", methods=["POST"])
+@admin_required
+def admin_upload_payload():
+    files = request.files.getlist("payload_files")
+    if not files or all(f.filename == "" for f in files):
+        return "No files uploaded", 400
+    os.makedirs(PAYLOAD_DIR, exist_ok=True)
+    for f in files:
+        if f.filename:
+            f.save(os.path.join(PAYLOAD_DIR, f.filename))
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/clear-payload", methods=["POST"])
+@admin_required
+def admin_clear_payload():
+    import shutil
+    if os.path.isdir(PAYLOAD_DIR):
+        shutil.rmtree(PAYLOAD_DIR)
+    os.makedirs(PAYLOAD_DIR, exist_ok=True)
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/api/headers/<key_hash_val>")
+def api_get_header(key_hash_val):
+    db = get_db()
+    row = db.execute("SELECT * FROM keys WHERE key_hash = ?", (key_hash_val,)).fetchone()
+    db.close()
+    if not row:
+        return "Key not found", 404
+    if not row["generated_header"]:
+        return "Header not generated yet. Use /admin/generate-loader first.", 404
+    return row["generated_header"], 200, {"Content-Type": "text/plain"}
+
+
+@app.route("/api/pending-builds")
+def api_pending_builds():
+    db = get_db()
+    rows = db.execute(
+        "SELECT key_text, key_hash, expiry_type FROM keys WHERE generated_header IS NOT NULL AND loader_file IS NULL"
+    ).fetchall()
+    db.close()
+    return jsonify([dict(r) for r in rows])
 
 
 @app.route("/admin/delete-key/<int:key_id>", methods=["POST"])
@@ -318,6 +554,58 @@ def admin_logout():
 
 _last_update_check = 0
 _current_offsets_version = "unknown"
+_current_loader_version = "0"
+LATEST_LOADER_FILE = os.path.join(LOADER_VERSION_DIR, "latest_loader.zip")
+
+
+def _init_loader_version():
+    global _current_loader_version
+    vf = os.path.join(LOADER_VERSION_DIR, "version.txt")
+    if os.path.exists(vf):
+        _current_loader_version = open(vf).read().strip()
+    else:
+        _current_loader_version = "1"
+        os.makedirs(LOADER_VERSION_DIR, exist_ok=True)
+        with open(vf, "w") as f:
+            f.write("1")
+
+
+@app.route("/api/version")
+def api_version():
+    return jsonify({
+        "version": _current_loader_version,
+        "download_url": "/api/loader/download"
+    })
+
+
+@app.route("/api/loader/download")
+def api_download_latest():
+    if not os.path.exists(LATEST_LOADER_FILE):
+        return "No loader available", 404
+    return send_file(LATEST_LOADER_FILE, as_attachment=True, download_name="BlossomLoader.zip")
+
+
+@app.route("/admin/upload-latest-loader", methods=["POST"])
+@admin_required
+def admin_upload_latest_loader():
+    global _current_loader_version
+    file = request.files.get("loader")
+    if not file:
+        return "No file uploaded", 400
+    os.makedirs(LOADER_VERSION_DIR, exist_ok=True)
+    file.save(LATEST_LOADER_FILE)
+    new_ver = request.form.get("version", "").strip()
+    if not new_ver:
+        try:
+            _current_loader_version = str(int(_current_loader_version) + 1)
+        except ValueError:
+            _current_loader_version = "1"
+    else:
+        _current_loader_version = new_ver
+    vf = os.path.join(LOADER_VERSION_DIR, "version.txt")
+    with open(vf, "w") as f:
+        f.write(_current_loader_version)
+    return redirect(url_for("admin_panel"))
 
 
 def _fetch_json(url):
@@ -467,6 +755,7 @@ def _offset_loop():
 
 
 init_db()
+_init_loader_version()
 _check_and_update_offsets()
 
 if not os.environ.get("PORT"):
