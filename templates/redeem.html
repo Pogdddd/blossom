@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blossom - Redeem Key</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0818;color:#e6d6f0;font-family:'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.bg{position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(180deg,#0a0818 0%,#100e24 50%,#0a0818 100%);z-index:0}
+.petals{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1}
+.petal{position:absolute;width:8px;height:6px;background:rgba(255,182,193,0.4);border-radius:50%;animation:fall linear infinite}
+@keyframes fall{0%{transform:translateY(-10px) rotate(0deg);opacity:0.6}100%{transform:translateY(100vh) rotate(360deg);opacity:0}}
+.card{position:relative;z-index:2;background:rgba(16,12,34,0.9);border:1px solid rgba(200,150,200,0.2);border-radius:16px;padding:48px 40px;width:420px;box-shadow:0 0 60px rgba(200,150,200,0.08)}
+.title{text-align:center;font-size:32px;font-weight:bold;color:#e6b6e6;margin-bottom:6px}
+.subtitle{text-align:center;font-size:13px;color:rgba(200,170,210,0.6);margin-bottom:36px}
+.input-group{margin-bottom:20px}
+.input-group label{display:block;font-size:12px;color:#c8a8d8;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px}
+.input-group input{width:100%;padding:14px 16px;background:rgba(22,18,38,0.8);border:1px solid rgba(80,60,100,0.4);border-radius:8px;color:#e6d6f0;font-size:16px;font-family:monospace;letter-spacing:2px;outline:none;transition:border-color 0.3s}
+.input-group input:focus{border-color:rgba(200,150,200,0.7)}
+.input-group input::placeholder{color:rgba(100,80,120,0.6);letter-spacing:1px}
+.btn{width:100%;padding:14px;background:linear-gradient(135deg,#b482b4,#c896c8);border:none;border-radius:8px;color:#1a1028;font-size:15px;font-weight:bold;cursor:pointer;transition:all 0.3s;text-transform:uppercase;letter-spacing:1px}
+.btn:hover{background:linear-gradient(135deg,#c896c8,#dbb0db);transform:translateY(-1px);box-shadow:0 4px 20px rgba(200,150,200,0.3)}
+.btn:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+.msg{text-align:center;margin-top:16px;font-size:14px;min-height:20px}
+.msg.success{color:#7deb7d}
+.msg.error{color:#eb7d7d}
+.loader-anim{display:none;text-align:center;margin-top:20px}
+.spinner{display:inline-block;width:24px;height:24px;border:3px solid rgba(200,150,200,0.2);border-top-color:#c896c8;border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.footer{text-align:center;margin-top:24px;font-size:11px;color:rgba(200,170,210,0.3)}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="petals" id="petals"></div>
+<div class="card">
+  <div class="title">Blossom</div>
+  <div class="subtitle">Enter your key to download</div>
+  <form id="form" onsubmit="return redeem(event)">
+    <div class="input-group">
+      <label>License Key</label>
+      <input type="text" id="key" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" maxlength="29" autocomplete="off" autofocus>
+    </div>
+    <button type="submit" class="btn" id="submitBtn">Download Loader</button>
+  </form>
+  <div class="loader-anim" id="loaderAnim"><div class="spinner"></div></div>
+  <div class="msg" id="msg"></div>
+  <div class="footer">blossom</div>
+</div>
+<script>
+const input=document.getElementById("key");
+input.addEventListener("input",e=>{let v=e.target.value.replace(/[^A-Za-z0-9]/g,"").toUpperCase();let f="";for(let i=0;i<v.length&&i<20;i++){if(i>0&&i%5===0)f+="-";f+=v[i]}e.target.value=f});
+async function redeem(e){e.preventDefault();const key=document.getElementById("key").value.trim();if(!key){show("Enter a key","error");return}document.getElementById("submitBtn").disabled=true;document.getElementById("loaderAnim").style.display="block";try{const r=await fetch("/api/validate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key})});const d=await r.json();if(d.valid){show("Key accepted! Downloading...","success");window.location.href=d.download_url}else{show(d.message,"error")}}catch(ex){show("Connection error","error")}document.getElementById("submitBtn").disabled=false;document.getElementById("loaderAnim").style.display="none"}
+function show(t,c){const m=document.getElementById("msg");m.textContent=t;m.className="msg "+c}
+for(let i=0;i<30;i++){const p=document.createElement("div");p.className="petal";p.style.left=Math.random()*100+"%";p.style.animationDuration=(5+Math.random()*10)+"s";p.style.animationDelay=Math.random()*10+"s";p.style.width=(4+Math.random()*8)+"px";p.style.height=(3+Math.random()*6)+"px";document.getElementById("petals").appendChild(p)}
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blossom - Admin Login</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0818;color:#e6d6f0;font-family:'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.card{background:rgba(16,12,34,0.9);border:1px solid rgba(200,150,200,0.2);border-radius:16px;padding:40px;width:360px;text-align:center}
+.title{font-size:24px;font-weight:bold;color:#e6b6e6;margin-bottom:24px}
+input{width:100%;padding:12px 16px;background:rgba(22,18,38,0.8);border:1px solid rgba(80,60,100,0.4);border-radius:8px;color:#e6d6f0;font-size:15px;outline:none;margin-bottom:16px}
+input:focus{border-color:rgba(200,150,200,0.7)}
+.btn{width:100%;padding:12px;background:linear-gradient(135deg,#b482b4,#c896c8);border:none;border-radius:8px;color:#1a1028;font-size:14px;font-weight:bold;cursor:pointer;text-transform:uppercase;letter-spacing:1px}
+.btn:hover{background:linear-gradient(135deg,#c896c8,#dbb0db)}
+.err{color:#eb7d7d;font-size:13px;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="title">Admin</div>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <form method="POST">
+    <input type="password" name="password" placeholder="Password" autofocus>
+    <button type="submit" class="btn">Login</button>
+  </form>
+</div>
+</body>
+</html>

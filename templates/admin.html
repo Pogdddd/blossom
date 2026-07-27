@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blossom - Admin Panel</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0818;color:#e6d6f0;font-family:'Segoe UI',sans-serif;min-height:100vh;padding:24px}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid rgba(200,150,200,0.15)}
+.topbar h1{font-size:22px;color:#e6b6e6}
+.topbar a{color:#c896c8;text-decoration:none;font-size:13px}
+.topbar a:hover{text-decoration:underline}
+.stats{display:flex;gap:16px;margin-bottom:28px}
+.stat{background:rgba(16,12,34,0.8);border:1px solid rgba(200,150,200,0.15);border-radius:10px;padding:18px 24px;flex:1;text-align:center}
+.stat .num{font-size:28px;font-weight:bold;color:#e6b6e6}
+.stat .label{font-size:11px;color:rgba(200,170,210,0.5);text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+.panel{background:rgba(16,12,34,0.8);border:1px solid rgba(200,150,200,0.15);border-radius:12px;padding:24px;margin-bottom:24px}
+.panel h2{font-size:16px;color:#e6b6e6;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.row{display:flex;gap:12px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:11px;color:rgba(200,170,210,0.6);text-transform:uppercase;letter-spacing:1px}
+.field select,.field input[type="text"],.field input[type="number"]{padding:10px 12px;background:rgba(22,18,38,0.8);border:1px solid rgba(80,60,100,0.4);border-radius:6px;color:#e6d6f0;font-size:13px;outline:none}
+.field select:focus,.field input:focus{border-color:rgba(200,150,200,0.7)}
+.btn{padding:10px 20px;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;transition:all 0.2s}
+.btn-primary{background:linear-gradient(135deg,#b482b4,#c896c8);color:#1a1028}
+.btn-primary:hover{background:linear-gradient(135deg,#c896c8,#dbb0db)}
+.btn-danger{background:rgba(200,80,80,0.3);color:#eb7d7d;border:1px solid rgba(200,80,80,0.3)}
+.btn-danger:hover{background:rgba(200,80,80,0.5)}
+.btn-sm{padding:6px 12px;font-size:11px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 12px;border-bottom:1px solid rgba(200,150,200,0.15);color:rgba(200,170,210,0.5);font-size:11px;text-transform:uppercase;letter-spacing:1px}
+td{padding:10px 12px;border-bottom:1px solid rgba(200,150,200,0.07)}
+.badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:bold}
+.badge-unused{background:rgba(125,235,125,0.15);color:#7deb7d}
+.badge-redeemed{background:rgba(200,150,200,0.15);color:#c896c8}
+.badge-day{background:rgba(125,180,235,0.15);color:#7db4eb}
+.badge-lifetime{background:rgba(235,180,125,0.15);color:#ebb47d}
+.key-text{font-family:monospace;letter-spacing:1px;color:#e6d6e6}
+.generated{background:rgba(125,235,125,0.08);border:1px solid rgba(125,235,125,0.2);border-radius:8px;padding:16px;margin-bottom:16px}
+.generated h3{color:#7deb7d;font-size:14px;margin-bottom:8px}
+.generated pre{font-family:monospace;font-size:13px;color:#e6d6f0;white-space:pre-wrap;user-select:all;cursor:pointer}
+.empty{color:rgba(200,170,210,0.3);text-align:center;padding:24px;font-size:13px}
+.upload-form{display:flex;gap:8px;align-items:flex-end}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>Blossom Admin</h1>
+  <a href="/admin/logout">Logout</a>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="num">{{ stats.total_keys }}</div><div class="label">Total Keys</div></div>
+  <div class="stat"><div class="num">{{ stats.unused }}</div><div class="label">Unused</div></div>
+  <div class="stat"><div class="num">{{ stats.redeemed }}</div><div class="label">Redeemed</div></div>
+  <div class="stat"><div class="num">{{ stats.total_accounts }}</div><div class="label">Accounts</div></div>
+</div>
+
+
+
+<div class="panel">
+  <h2>Generate Keys</h2>
+  <form method="POST" action="/admin/generate-key">
+    <div class="row">
+      <div class="field">
+        <label>Type</label>
+        <select name="type">
+          <option value="day">Day (24h)</option>
+          <option value="lifetime">Lifetime</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Count</label>
+        <input type="number" name="count" value="1" min="1" max="100" style="width:80px">
+      </div>
+      <button type="submit" class="btn btn-primary">Generate</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Upload Loader</h2>
+  <form method="POST" action="/admin/upload-loader" enctype="multipart/form-data">
+    <div class="row">
+      <div class="field">
+        <label>Key</label>
+        <input type="text" name="key_text" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" style="width:260px;font-family:monospace">
+      </div>
+      <div class="field">
+        <label>Loader EXE</label>
+        <input type="file" name="loader" accept=".exe" style="color:#c8a8d8;font-size:12px">
+      </div>
+      <button type="submit" class="btn btn-primary">Upload</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Keys</h2>
+  {% if keys %}
+  <table>
+    <tr><th>Key</th><th>Type</th><th>Status</th><th>Redeemed</th><th>Loader</th><th></th></tr>
+    {% for k in keys %}
+    <tr>
+      <td class="key-text">{{ k.key_text }}</td>
+      <td><span class="badge badge-{{ k.expiry_type }}">{{ k.expiry_type }}</span></td>
+      <td><span class="badge badge-{{ k.status }}">{{ k.status }}</span></td>
+      <td>{{ k.redeemed_at or '-' }}</td>
+      <td>{{ 'Yes' if k.loader_file else 'No' }}</td>
+      <td>
+        <form method="POST" action="/admin/delete-key/{{ k.id }}" style="display:inline" onsubmit="return confirm('Delete?')">
+          <button class="btn btn-danger btn-sm">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">No keys yet</div>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>Accounts</h2>
+  {% if accounts %}
+  <table>
+    <tr><th>Username</th><th>HWID</th><th>Type</th><th>Expires</th><th>Created</th><th></th></tr>
+    {% for a in accounts %}
+    <tr>
+      <td>{{ a.username }}</td>
+      <td class="key-text" style="font-size:11px">{{ a.hwid[:16] }}...</td>
+      <td><span class="badge badge-{{ a.expiry_type }}">{{ a.expiry_type }}</span></td>
+      <td>{{ a.expiry_time }}</td>
+      <td>{{ a.created_at }}</td>
+      <td>
+        <form method="POST" action="/admin/reset-hwid/{{ a.username }}" style="display:inline" onsubmit="return confirm('Reset HWID?')">
+          <button class="btn btn-danger btn-sm">Reset HWID</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">No accounts yet</div>
+  {% endif %}
+</div>
+</body>
+</html>
