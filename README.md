@@ -12,7 +12,7 @@ pip install flask gunicorn
 set BLOSSOM_ADMIN_PASS=your_password
 
 # Run
-python app.py
+python main.py
 ```
 
 Panel runs on http://localhost:5000
@@ -57,7 +57,7 @@ Panel runs on http://localhost:5000
 
 ```
 webpanel/
-  app.py              — Flask server
+  main.py              — Flask server
   blossom.db          — SQLite database (auto-created)
   loaders/            — uploaded loader EXEs
   templates/
@@ -101,7 +101,7 @@ webpanel/
    ```
 6. Run with gunicorn:
    ```bash
-   gunicorn -w 4 -b 0.0.0.0:5000 app:app
+   gunicorn -w 4 -b 0.0.0.0:5000 main:app
    ```
 7. Optional: use nginx as reverse proxy for HTTPS
 

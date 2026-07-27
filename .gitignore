@@ -3,3 +3,5 @@ loaders/
 __pycache__/
 *.pyc
 .env
+.secret_key
+.offsets_hash

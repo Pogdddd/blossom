@@ -1,23 +1,255 @@
 import os
 import io
+import re
 import uuid
+import json
 import sqlite3
 import hashlib
 import secrets
 import subprocess
 import time
+import threading
+import urllib.request
 from datetime import datetime
 from functools import wraps
 from flask import Flask, request, jsonify, send_file, redirect, url_for, session, render_template, abort
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(32)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "blossom.db")
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "loaders")
 ADMIN_PASS_HASH = os.environ.get("BLOSSOM_ADMIN_PASS", "blossom2026")
 
+SECRET_FILE = os.path.join(os.path.dirname(__file__), ".secret_key")
+
+def get_secret_key():
+    if os.path.exists(SECRET_FILE):
+        with open(SECRET_FILE, "r") as f:
+            return f.read().strip()
+    key = secrets.token_hex(32)
+    with open(SECRET_FILE, "w") as f:
+        f.write(key)
+    return key
+
+app.secret_key = get_secret_key()
+
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+OFFSETS_DIR = os.path.join(os.path.dirname(__file__), "data")
+OFFSETS_FILE = os.path.join(OFFSETS_DIR, "offsets.h")
+CHEATOFFSETS_API = "https://www.cheatoffsets.com/api/games/roblox/current/offsets"
+DUMPER_URL = "https://dumper.jonah.cool/offsets.h"
+OFFSETS_HASH_FILE = os.path.join(OFFSETS_DIR, ".offsets_hash")
+
+CHEATOFFSETS_MAP = {
+    "FakeDataModelPointer": ("FakeDataModel", "Pointer"),
+    "GameLoaded": ("DataModel", "GameLoaded"),
+    "ScriptContextResume": ("ScriptContext", "Resume"),
+    "ConnectionDisconnect": ("Instance", "ConnectionDisconnect"),
+    "GetLuaStateForInstance": ("ScriptContext", "GetLuaState"),
+    "PushInstance": ("ScriptContext", "PushInstance"),
+    "FireLeftMouseClick": ("ProximityPrompt", "FireLeftMouseClick"),
+    "FireMouseHoverEnter": ("ProximityPrompt", "FireMouseHoverEnter"),
+    "FireMouseHoverLeave": ("ProximityPrompt", "FireMouseHoverLeave"),
+    "FireTouchInterest": ("BasePart", "FireTouchInterest"),
+    "HandleConnectionState": ("Instance", "HandleConnectionState"),
+    "ProcessNetworkPacket": ("DataModel", "ProcessNetworkPacket"),
+    "ReportNetworkError": ("DataModel", "ReportNetworkError"),
+    "LuaVMLoad": ("LuaVM", "Load"),
+    "luau_execute": ("LuaVM", "Execute"),
+    "lua_namecallatom": ("LuaVM", "NamecallAtom"),
+    "lua_newstate": ("LuaVM", "NewState"),
+    "luaD_throw": ("LuaVM", "Throw"),
+    "lua_yield": ("LuaVM", "Yield"),
+    "spawn": ("TaskScheduler", "Spawn"),
+    "defer": ("TaskScheduler", "Defer"),
+    "delay": ("TaskScheduler", "Delay"),
+    "wait": ("TaskScheduler", "Wait"),
+}
+
+
+def _fetch_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _fetch_text(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.read().decode("utf-8")
+
+
+def _convert_dumper(raw):
+    lines = raw.splitlines()
+    out = []
+    header_done = False
+    has_pragma_once = True
+    version = "unknown"
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("/*") or stripped.startswith("*") or stripped.startswith("*/"):
+            if not header_done:
+                continue
+            out.append(line)
+            continue
+        if not header_done and (stripped.startswith("#pragma") or stripped.startswith("#include") or stripped.startswith("namespace") or stripped.startswith("//")):
+            header_done = True
+        if not header_done:
+            continue
+        if stripped == "#pragma once":
+            if has_pragma_once:
+                continue
+            has_pragma_once = True
+        if "namespace offsets" in line and "{" in line:
+            line = line.replace("namespace offsets", "namespace Offsets")
+        if "inline constexpr const char*" in line and "roblox_version" in line:
+            line = line.replace("inline constexpr const char* roblox_version", "inline std::string ClientVersion")
+            idx = line.find('"')
+            if idx != -1:
+                end = line.rfind('"')
+                version = line[idx + 1:end]
+                line = f'    inline std::string ClientVersion = "{version}";'
+            out.append(line)
+            continue
+        out.append(line)
+    return "\n".join(out), version
+
+
+def _parse_offsets(content):
+    result = {}
+    current_ns = None
+    for line in content.splitlines():
+        stripped = line.strip()
+        ns_match = re.match(r'namespace\s+(\w+)\s*\{', stripped)
+        if ns_match:
+            current_ns = ns_match.group(1)
+            if current_ns not in result:
+                result[current_ns] = {}
+            continue
+        if stripped.startswith("}") and current_ns:
+            current_ns = None
+            continue
+        val_match = re.match(r'inline\s+(?:constexpr\s+)?(?:uintptr_t|std::string)\s+(\w+)\s*=\s*(.+?);', stripped)
+        if val_match and current_ns:
+            result[current_ns][val_match.group(1)] = val_match.group(2).strip()
+    return result
+
+
+def _build_offsets():
+    try:
+        dumper_raw = _fetch_text(DUMPER_URL)
+        dumper_content, dumper_version = _convert_dumper(dumper_raw)
+    except Exception:
+        dumper_content, dumper_version = "", "unknown"
+
+    try:
+        cheat_data = _fetch_json(CHEATOFFSETS_API)
+        cheat_version = cheat_data.get("version", "unknown")
+        offsets_flat = cheat_data.get("offsets_flat", {})
+        cheat_ns = {}
+        for flat_name, (ns, name) in CHEATOFFSETS_MAP.items():
+            if flat_name in offsets_flat:
+                if ns not in cheat_ns:
+                    cheat_ns[ns] = {}
+                cheat_ns[ns][name] = offsets_flat[flat_name]
+    except Exception:
+        cheat_ns, cheat_version = {}, "unknown"
+
+    existing = _parse_offsets(dumper_content)
+    for ns, vals in cheat_ns.items():
+        if ns not in existing:
+            existing[ns] = {}
+        for name, val in vals.items():
+            if name not in existing[ns]:
+                existing[ns][name] = val
+
+    lines = [
+        "#pragma once",
+        "/* =============================================================",
+        "/*                       Auto-Dumped",
+        "/*  Sources       : cheatoffsets.com + dumper.jonah.cool",
+        "/* -------------------------------------------------------------",
+        f"/*  Dumper Version : {dumper_version}",
+        f"/*  Cheat Version  : {cheat_version}",
+        "/* =============================================================",
+        "",
+        "#include <cstdint>",
+        "",
+        "// clang-format off",
+        "namespace Offsets {",
+        f'    inline std::string ClientVersion = "{dumper_version}";',
+    ]
+    for ns in sorted(existing.keys()):
+        if ns in ("offsets", "Offsets"):
+            continue
+        lines.append("")
+        lines.append(f"    namespace {ns} {{")
+        for name in sorted(existing[ns].keys()):
+            val = existing[ns][name]
+            if val.startswith('"'):
+                lines.append(f'        inline std::string {name} = {val};')
+            else:
+                lines.append(f"        inline constexpr uintptr_t {name} = {val};")
+        lines.append("    }")
+    lines.append("")
+    lines.append("} // namespace Offsets")
+    lines.append("")
+    return "\n".join(lines), dumper_version
+
+
+def _check_and_update_offsets():
+    try:
+        content, version = _build_offsets()
+        new_hash = hashlib.sha256(content.encode()).hexdigest()
+
+        old_hash = ""
+        if os.path.exists(OFFSETS_HASH_FILE):
+            with open(OFFSETS_HASH_FILE, "r") as f:
+                old_hash = f.read().strip()
+
+        if new_hash == old_hash:
+            return False, version
+
+        os.makedirs(OFFSETS_DIR, exist_ok=True)
+        with open(OFFSETS_FILE, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        with open(OFFSETS_HASH_FILE, "w") as f:
+            f.write(new_hash)
+
+        return True, version
+    except Exception as e:
+        print(f"[offset-updater] Error: {e}")
+        return False, "error"
+
+
+_last_update_check = 0
+_current_offsets_version = "unknown"
+
+
+def _offset_updater_thread():
+    global _last_update_check, _current_offsets_version
+    while True:
+        time.sleep(1800)
+        updated, version = _check_and_update_offsets()
+        _last_update_check = time.time()
+        if updated:
+            _current_offsets_version = version
+            print(f"[offset-updater] Offsets updated: {version}")
+        else:
+            _current_offsets_version = version
+
+
+def _initial_offsets_check():
+    global _last_update_check, _current_offsets_version
+    updated, version = _check_and_update_offsets()
+    _last_update_check = time.time()
+    _current_offsets_version = version
+    if updated:
+        print(f"[offset-updater] Initial update: {version}")
+    else:
+        print(f"[offset-updater] Up to date: {version}")
 
 def get_db():
     db = sqlite3.connect(DB_PATH)
@@ -146,6 +378,22 @@ def api_delete_account():
     db.close()
     return jsonify({"ok": True})
 
+
+@app.route("/api/offsets", methods=["GET"])
+def api_offsets_version():
+    return jsonify({
+        "version": _current_offsets_version,
+        "last_check": int(_last_update_check),
+        "download": "/api/offsets/download"
+    })
+
+
+@app.route("/api/offsets/download", methods=["GET"])
+def api_offsets_download():
+    if not os.path.exists(OFFSETS_FILE):
+        return "Offsets not available yet", 404
+    return send_file(OFFSETS_FILE, as_attachment=True, download_name="offsets.h")
+
 @app.route("/admin/reset-hwid/<username>", methods=["POST"])
 @admin_required
 def admin_reset_hwid(username):
@@ -259,6 +507,11 @@ def admin_logout():
     return redirect(url_for("admin_login"))
 
 init_db()
+os.makedirs(OFFSETS_DIR, exist_ok=True)
+
+if not os.environ.get("PORT"):
+    threading.Thread(target=_initial_offsets_check, daemon=True).start()
+    threading.Thread(target=_offset_updater_thread, daemon=True).start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
