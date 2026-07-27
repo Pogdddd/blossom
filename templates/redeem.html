@@ -40,7 +40,7 @@ body{background:#0a0818;color:#e6d6f0;font-family:'Segoe UI',sans-serif;min-heig
   <form id="form" onsubmit="return redeem(event)">
     <div class="input-group">
       <label>License Key</label>
-      <input type="text" id="key" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" maxlength="29" autocomplete="off" autofocus>
+      <input type="text" id="key" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" maxlength="29" autocomplete="off" autofocus>
     </div>
     <button type="submit" class="btn" id="submitBtn">Download Loader</button>
   </form>
@@ -50,7 +50,7 @@ body{background:#0a0818;color:#e6d6f0;font-family:'Segoe UI',sans-serif;min-heig
 </div>
 <script>
 const input=document.getElementById("key");
-input.addEventListener("input",e=>{let v=e.target.value.replace(/[^A-Za-z0-9]/g,"").toUpperCase();let f="";for(let i=0;i<v.length&&i<20;i++){if(i>0&&i%5===0)f+="-";f+=v[i]}e.target.value=f});
+input.addEventListener("input",e=>{let v=e.target.value.replace(/[^A-Za-z0-9]/g,"").toUpperCase();let f="";for(let i=0;i<v.length&&i<25;i++){if(i>0&&i%5===0)f+="-";f+=v[i]}e.target.value=f});
 async function redeem(e){e.preventDefault();const key=document.getElementById("key").value.trim();if(!key){show("Enter a key","error");return}document.getElementById("submitBtn").disabled=true;document.getElementById("loaderAnim").style.display="block";try{const r=await fetch("/api/validate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key})});const d=await r.json();if(d.valid){show("Key accepted! Downloading...","success");window.location.href=d.download_url}else{show(d.message,"error")}}catch(ex){show("Connection error","error")}document.getElementById("submitBtn").disabled=false;document.getElementById("loaderAnim").style.display="none"}
 function show(t,c){const m=document.getElementById("msg");m.textContent=t;m.className="msg "+c}
 for(let i=0;i<30;i++){const p=document.createElement("div");p.className="petal";p.style.left=Math.random()*100+"%";p.style.animationDuration=(5+Math.random()*10)+"s";p.style.animationDelay=Math.random()*10+"s";p.style.width=(4+Math.random()*8)+"px";p.style.height=(3+Math.random()*6)+"px";document.getElementById("petals").appendChild(p)}
